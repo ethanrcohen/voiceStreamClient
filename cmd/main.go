@@ -14,6 +14,7 @@ import (
 	"github.com/go-audio/audio"
 	"github.com/go-audio/wav"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
@@ -79,19 +80,31 @@ func loadAndProcessAudioFile(filePath string) ([][]byte, error) {
 }
 
 func streamAudioToServer(serverAddr string, audioBytes []byte) error {
-	conn, err := grpc.Dial(serverAddr, grpc.WithInsecure(), grpc.WithBlock())
+	fmt.Println("connecting to server")
+	conn, err := grpc.Dial(serverAddr, grpc.WithInsecure())
 	if err != nil {
-		log.Fatalf("did not connect: %v", err)
+		fmt.Printf("did not connect: %v", err)
 		return err
 	}
+	fmt.Println("connected to server")
 	defer conn.Close()
 
+	// load from env
+	five9TrustToken := os.Getenv("FIVE9_TRUST_TOKEN")
+	md := metadata.New(map[string]string{
+		"x-five9-trust-token": five9TrustToken,
+	})
+	// Create a new context with the above metadata
+	ctx := metadata.NewOutgoingContext(context.Background(), md)
+
 	client := voicestream.NewVoiceClient(conn)
-	stream, err := client.StreamingVoice(context.Background())
+
+	stream, err := client.StreamingVoice(ctx)
 	if err != nil {
-		log.Fatalf("could not initialize streaming: %v", err)
-		return err
+		log.Fatalf("could not open stream: %v", err)
 	}
+
+	fmt.Println("streaming audio to server")
 
 	// Assume streamingConfig is a pb.StreamingConfig object you've filled out
 	err = stream.Send(&voicestream.StreamingVoiceRequest{
@@ -137,32 +150,34 @@ func streamAudioToServer(serverAddr string, audioBytes []byte) error {
 		}
 	}
 
+	fmt.Println("finished streaming audio to server")
+
 	// Close the stream once all the audio has been sent
 	if err := stream.CloseSend(); err != nil {
 		log.Fatalf("Could not close stream: %v", err)
 		return err
 	}
 
-	// Optionally, handle responses from the server
-	for {
-		res, err := stream.Recv()
-		if err == io.EOF {
-			break // Stream is closed
-		}
-		if err != nil {
-			log.Fatalf("Failed to receive a message : %v", err)
-			return err
-		}
-		if res != nil {
-			log.Default().Printf("Received response: %v", res)
-		}
-	}
+	// // Optionally, handle responses from the server
+	// for {
+	// 	res, err := stream.Recv()
+	// 	if err == io.EOF {
+	// 		break // Stream is closed
+	// 	}
+	// 	if err != nil {
+	// 		log.Fatalf("Failed to receive a message : %v", err)
+	// 		return err
+	// 	}
+	// 	if res != nil {
+	// 		log.Default().Printf("Received response: %v", res)
+	// 	}
+	// }
 	return nil
 }
 
 func main() {
 	serverAddr := flag.String("server", "", "The server address in the format of host:port")
-	audioFilePath := flag.String("audiofile", "", "Path to the audio file to stream")
+	audioFilePath := flag.String("audiofile", "", "Path to the audio file to stream. Must be a linear16 encoded WAV file with 8000 HZ sample rate")
 	flag.Parse()
 
 	if *serverAddr == "" {
@@ -177,6 +192,8 @@ func main() {
 	audioChannels, err := loadAndProcessAudioFile(*audioFilePath)
 	if err != nil {
 		log.Fatalf("Failed to load and process audio file: %v", err)
+	} else {
+		log.Printf("Loaded %d audio channels", len(audioChannels))
 	}
 
 	var wg sync.WaitGroup
@@ -185,10 +202,13 @@ func main() {
 	for i, audioData := range audioChannels {
 		wg.Add(1)
 		go func(channelIndex int, data []byte) {
+			fmt.Printf("Streaming audio for channel %d\n", channelIndex)
 			defer wg.Done()
 			if err := streamAudioToServer(*serverAddr, data); err != nil {
+				fmt.Printf("Error streaming audio for channel %d: %v\n", channelIndex, err)
 				errChan <- err
 			}
+			fmt.Printf("Finished streaming audio for channel %d\n", channelIndex)
 		}(i, audioData)
 	}
 
