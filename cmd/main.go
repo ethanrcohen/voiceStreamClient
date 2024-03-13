@@ -13,6 +13,7 @@ import (
 	voicestream "github.com/ethanrcohen/voiceStreamClient/api"
 	"github.com/go-audio/audio"
 	"github.com/go-audio/wav"
+	"github.com/joho/godotenv"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -117,6 +118,8 @@ func streamAudioToServer(serverAddr string, audioBytes []byte) error {
 				VccCallId: "testCallId",
 				DomainId:  "testDomainId",
 				AgentId:   "testAgentId",
+				// Hard coded dev campaign
+				CampaignId: "1137786",
 			},
 		},
 	})
@@ -176,6 +179,15 @@ func streamAudioToServer(serverAddr string, audioBytes []byte) error {
 }
 
 func main() {
+	err := godotenv.Load()
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
+	if os.Getenv("FIVE9_TRUST_TOKEN") == "" {
+		log.Fatal("FIVE9_TRUST_TOKEN is not set")
+	}
+
 	serverAddr := flag.String("server", "", "The server address in the format of host:port")
 	audioFilePath := flag.String("audiofile", "", "Path to the audio file to stream. Must be a linear16 encoded WAV file with 8000 HZ sample rate")
 	flag.Parse()
