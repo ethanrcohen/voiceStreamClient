@@ -161,20 +161,6 @@ func streamAudioToServer(serverAddr string, audioBytes []byte) error {
 		return err
 	}
 
-	// // Optionally, handle responses from the server
-	// for {
-	// 	res, err := stream.Recv()
-	// 	if err == io.EOF {
-	// 		break // Stream is closed
-	// 	}
-	// 	if err != nil {
-	// 		log.Fatalf("Failed to receive a message : %v", err)
-	// 		return err
-	// 	}
-	// 	if res != nil {
-	// 		log.Default().Printf("Received response: %v", res)
-	// 	}
-	// }
 	return nil
 }
 
@@ -209,7 +195,6 @@ func main() {
 	}
 
 	var wg sync.WaitGroup
-	errChan := make(chan error, len(audioChannels)) // Buffered channel for errors
 
 	for i, audioData := range audioChannels {
 		wg.Add(1)
@@ -218,25 +203,12 @@ func main() {
 			defer wg.Done()
 			if err := streamAudioToServer(*serverAddr, data); err != nil {
 				fmt.Printf("Error streaming audio for channel %d: %v\n", channelIndex, err)
-				errChan <- err
 			}
 			fmt.Printf("Finished streaming audio for channel %d\n", channelIndex)
 		}(i, audioData)
 	}
 
-	// Close the error channel after all goroutines complete
-	go func() {
-		wg.Wait()
-		close(errChan)
-	}()
-
-	// Process any errors from the goroutines
-	for err := range errChan {
-		if err != nil {
-			log.Printf("Error streaming audio: %v", err)
-			// Handle the error, e.g., retry the failed operation or exit
-		}
-	}
+	wg.Wait()
 
 	log.Println("All channels have been streamed successfully.")
 }
